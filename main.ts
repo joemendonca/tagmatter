@@ -71,7 +71,10 @@ export default class TagmatterPlugin extends Plugin {
 			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 			const isActiveFile = activeView?.file?.path === file.path;
 			
-			const content = await this.app.vault.read(file);
+			// Read from editor if file is open, otherwise from vault
+			const content = (isActiveFile && activeView?.editor) 
+				? activeView.editor.getValue() 
+				: await this.app.vault.read(file);
 			
 			// Extract inline tags from content
 			const inlineTags = this.extractInlineTags(content);
