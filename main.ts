@@ -16,6 +16,7 @@ export default class TagmatterPlugin extends Plugin {
 	settings: TagmatterSettings;
 	private processing: Set<string> = new Set();
 	private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+	private lastActiveFile: TFile | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -32,12 +33,37 @@ export default class TagmatterPlugin extends Plugin {
 			}
 		});
 
-		// Auto-sync on file save if enabled
+		// Auto-sync when switching away from a file or on explicit save
 		if (this.settings.autoSync) {
+			// Sync when file loses focus (user switches to another file)
+			this.registerEvent(
+				this.app.workspace.on('active-leaf-change', async () => {
+					const previousFile = this.lastActiveFile;
+					const currentView = this.app.workspace.getActiveViewOfType(MarkdownView);
+					this.lastActiveFile = currentView?.file || null;
+					
+					// Sync the file we just left
+					if (previousFile && previousFile.extension === 'md') {
+						await this.syncTagsToFrontmatter(previousFile);
+					}
+				})
+			);
+			
+			// Also sync periodically while editing (but using a longer debounce)
 			this.registerEvent(
 				this.app.vault.on('modify', async (file) => {
 					if (file instanceof TFile && file.extension === 'md') {
-						// Debounce: wait 2 seconds after user stops typing
+						// Only debounce if user is actively editing
+						const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+						const isActiveFile = activeView?.file?.path === file.path;
+						
+						if (!isActiveFile) {
+							// File modified but not active, sync immediately
+							await this.syncTagsToFrontmatter(file);
+							return;
+						}
+						
+						// Debounce for active file: wait 3 seconds after typing stops
 						const existingTimer = this.debounceTimers.get(file.path);
 						if (existingTimer) {
 							clearTimeout(existingTimer);
@@ -46,7 +72,7 @@ export default class TagmatterPlugin extends Plugin {
 						const timer = setTimeout(async () => {
 							await this.syncTagsToFrontmatter(file);
 							this.debounceTimers.delete(file.path);
-						}, 2000); // Wait 2 seconds after typing stops
+						}, 3000); // Wait 3 seconds after typing stops
 						
 						this.debounceTimers.set(file.path, timer);
 					}
