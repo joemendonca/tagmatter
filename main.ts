@@ -33,7 +33,7 @@ export default class TagmatterPlugin extends Plugin {
 			}
 		});
 
-		// Auto-sync when switching away from a file or on explicit save
+		// Auto-sync ONLY when switching away from a file (safest approach)
 		if (this.settings.autoSync) {
 			// Sync when file loses focus (user switches to another file)
 			this.registerEvent(
@@ -44,37 +44,9 @@ export default class TagmatterPlugin extends Plugin {
 					
 					// Sync the file we just left
 					if (previousFile && previousFile.extension === 'md') {
+						// Small delay to ensure editor has saved its state
+						await new Promise(resolve => setTimeout(resolve, 100));
 						await this.syncTagsToFrontmatter(previousFile);
-					}
-				})
-			);
-			
-			// Also sync periodically while editing (but using a longer debounce)
-			this.registerEvent(
-				this.app.vault.on('modify', async (file) => {
-					if (file instanceof TFile && file.extension === 'md') {
-						// Only debounce if user is actively editing
-						const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-						const isActiveFile = activeView?.file?.path === file.path;
-						
-						if (!isActiveFile) {
-							// File modified but not active, sync immediately
-							await this.syncTagsToFrontmatter(file);
-							return;
-						}
-						
-						// Debounce for active file: wait 3 seconds after typing stops
-						const existingTimer = this.debounceTimers.get(file.path);
-						if (existingTimer) {
-							clearTimeout(existingTimer);
-						}
-						
-						const timer = setTimeout(async () => {
-							await this.syncTagsToFrontmatter(file);
-							this.debounceTimers.delete(file.path);
-						}, 3000); // Wait 3 seconds after typing stops
-						
-						this.debounceTimers.set(file.path, timer);
 					}
 				})
 			);

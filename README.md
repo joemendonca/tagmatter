@@ -25,7 +25,7 @@ tags:
 
 ## Features
 
-- **Automatic sync**: Tags are synced to frontmatter 2 seconds after you stop typing
+- **Automatic sync**: Tags are synced to frontmatter when you switch away from the file
 - **Smart punctuation handling**: `#tag.` correctly becomes `tag`
 - **Lowercase normalization**: Optionally convert tags to lowercase (enabled by default)
 - **Automatic cleanup**: Remove tags from frontmatter when you delete them from the document
