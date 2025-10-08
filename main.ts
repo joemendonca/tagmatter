@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile, Notice } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, TFile, Notice, MarkdownView } from 'obsidian';
 
 interface TagmatterSettings {
 	autoSync: boolean;
@@ -67,6 +67,10 @@ export default class TagmatterPlugin extends Plugin {
 		this.processing.add(file.path);
 		
 		try {
+			// Get the active editor if this file is currently open
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			const isActiveFile = activeView?.file?.path === file.path;
+			
 			const content = await this.app.vault.read(file);
 			
 			// Extract inline tags from content
@@ -85,32 +89,44 @@ export default class TagmatterPlugin extends Plugin {
 				return; // No changes needed
 			}
 			
+			// Build the new content
+			let newContent: string;
+			
 			// If no inline tags, remove frontmatter tags section (or entire frontmatter if empty)
 			if (inlineTags.length === 0) {
 				if (hasFrontmatter) {
 					const newFrontmatterText = this.removeTags(frontmatterText);
 					// Only keep frontmatter if there's other content
 					if (newFrontmatterText.trim()) {
-						const newContent = `---\n${newFrontmatterText}---\n${bodyText}`;
-						await this.app.vault.modify(file, newContent);
+						newContent = `---\n${newFrontmatterText}---\n${bodyText}`;
 					} else {
 						// Remove frontmatter entirely if tags were the only thing
-						await this.app.vault.modify(file, bodyText);
+						newContent = bodyText;
 					}
+				} else {
+					return; // Nothing to do
 				}
-				return;
+			} else {
+				// Build new frontmatter with updated tags (only inline tags, no merging)
+				const newFrontmatterText = this.buildFrontmatterWithTags(frontmatterText, sortedInlineTags, hasFrontmatter);
+				
+				// Reconstruct file with new frontmatter
+				newContent = hasFrontmatter 
+					? `---\n${newFrontmatterText}---\n${bodyText}`
+					: `---\n${newFrontmatterText}---\n${content}`;
 			}
 			
-			// Build new frontmatter with updated tags (only inline tags, no merging)
-			const newFrontmatterText = this.buildFrontmatterWithTags(frontmatterText, sortedInlineTags, hasFrontmatter);
-			
-			// Reconstruct file with new frontmatter
-			const newContent = hasFrontmatter 
-				? `---\n${newFrontmatterText}---\n${bodyText}`
-				: `---\n${newFrontmatterText}---\n${content}`;
-			
-			// Write directly to vault - this triggers proper metadata cache update
-			await this.app.vault.modify(file, newContent);
+			// If file is currently being edited, use editor API to avoid "external save" warning
+			if (isActiveFile && activeView?.editor) {
+				const editor = activeView.editor;
+				const currentCursor = editor.getCursor();
+				editor.setValue(newContent);
+				// Restore cursor position
+				editor.setCursor(currentCursor);
+			} else {
+				// File not open, safe to use vault.modify
+				await this.app.vault.modify(file, newContent);
+			}
 			
 		} finally {
 			// Remove from processing after a short delay
